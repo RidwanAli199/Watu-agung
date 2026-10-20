@@ -212,8 +212,16 @@ $('lf').onsubmit = async e => { e.preventDefault(); $('lerr').textContent = 'Mem
   catch (err) { $('lerr').textContent = 'Gagal masuk: ' + (err.code || err.message); } };
 async function initFirebase() {
   try {
-    const {firebaseConfig} = await import('./firebase-config.js');
-    if (!firebaseConfig || String(firebaseConfig.apiKey).startsWith('ISI')) { banner('Mode baca saja: firebase-config.js belum diisi, sehingga pengisian atribut belum aktif.'); authUI(); return; }
+    const firebaseConfig = {
+      apiKey: "AIzaSyB8k-9IaSEOAPPSaOU-d7nXOM6TLIwq5IY",
+      authDomain: "watuagung.firebaseapp.com",
+      projectId: "watuagung",
+      storageBucket: "watuagung.firebasestorage.app",
+      messagingSenderId: "20151757074",
+      appId: "1:20151757074:web:4e655c9943b233fb622bcb",
+      measurementId: "G-NHWHRFNSEW"
+    };
+    if (!firebaseConfig || String(firebaseConfig.apiKey).startsWith('ISI')) { banner('Mode baca saja: konfigurasi Firebase belum diisi, sehingga pengisian atribut belum aktif.'); authUI(); return; }
     const u = n => `https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${n}.js`;
     const [A, F, Au] = await Promise.all([import(u('app')), import(u('firestore')), import(u('auth'))]);
     const app = A.initializeApp(firebaseConfig), db = F.getFirestore(app), auth = Au.getAuth(app);
