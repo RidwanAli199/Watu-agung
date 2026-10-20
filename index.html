@@ -51,7 +51,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}#lerr{color:#dc2626;font-size:12px;m
   </div>
   <div id="stats"><span id="count"></span><span id="prog"></span></div>
   <div id="list"></div><div id="detail"></div>
-  <div id="foot"><button id="btnExport">Unduh GeoJSON</button> · Data pribadi (NIK, TTL, agama, pekerjaan, alamat, saksi) tidak ditampilkan dan tidak boleh diinput.</div>
+  <div id="foot"><button id="btnImport" class="pri" style="display:none">Impor GeoJSON</button> <button id="btnExport">Unduh GeoJSON</button><input id="fileImp" type="file" accept=".geojson,.json,application/geo+json,application/json" hidden> · Data pribadi (NIK, TTL, agama, pekerjaan, alamat, saksi) tidak ditampilkan dan tidak boleh diinput.</div>
  </aside>
  <div id="map"></div>
 </div>
@@ -74,7 +74,7 @@ const FIELDS = [['pemilik','Nama pemilik','text'],['dusun','Dusun (angka)','numb
   ['pemilik_lama','Pemilik sebelumnya','text'],['tahun_pbb','Tahun PBB','number'],['utara','Batas utara','text'],['timur','Batas timur','text'],
   ['selatan','Batas selatan','text'],['barat','Batas barat','text'],['no_surat','Nomor surat alas hak','text'],['tgl_surat','Tanggal surat alas hak','date'],['catatan_manual','Catatan','textarea']];
 const META = ['updatedAt','updatedBy'];
-let DATA, INIT, BYUID = new Map(), EDITS = new Map(), fb = null, user = null, sel = null, editing = false, lastOk = [];
+let DATA = {type: 'FeatureCollection', features: []}, INIT = null, BYUID = new Map(), EDITS = new Map(), fb = null, user = null, sel = null, editing = false, lastOk = [];
 const layers = new Map();
 
 const banner = t => { const b = $('banner'); b.textContent = t; b.style.display = t ? 'block' : 'none'; };
@@ -178,6 +178,7 @@ function visible(f) {
   return [p.pemilik, p.nib, p.hak, p.label, p.pemilik_lain].some(x => x && String(x).toLowerCase().includes(q)) || String(p.no ?? '') === q;
 }
 function renderList() {
+  if (!DATA.features.length) { $('list').innerHTML = '<div class="item"><small>Belum ada data peta. Admin: masuk, lalu klik "Impor GeoJSON".</small></div>'; $('count').textContent = '0 objek'; return; }
   const rank = {excel:0, manual:0, nama:1, nib:2, hak:3, lain:4, jalan:5, tanpa:6};
   const shown = lastOk.slice().sort((a, b) => rank[a._p.c] - rank[b._p.c]).slice(0, 300);
   $('list').innerHTML = shown.map(f => `<div class="item ${f === sel ? 'on' : ''}" data-i="${f._i}"><span class="dot" style="background:${col(f._p)}"></span><div>${esc(title(f._p))}<small>${esc(CL[f._p.c].n)}${f._p.no != null ? ' · No. ' + esc(f._p.no) : ''}</small></div></div>`).join('')
@@ -204,7 +205,7 @@ $('btnExport').onclick = () => {
 };
 
 /* ---------- Firebase: realtime + login ---------- */
-function authUI() { $('btnAuth').textContent = user ? `Keluar (${user.email})` : 'Masuk admin'; $('btnAuth').style.display = fb ? '' : 'none'; if (sel && !editing) pick(sel, false); }
+function authUI() { $('btnAuth').textContent = user ? `Keluar (${user.email})` : 'Masuk admin'; $('btnAuth').style.display = fb ? '' : 'none'; $('btnImport').style.display = canEdit() ? '' : 'none'; if (sel && !editing) pick(sel, false); }
 $('btnAuth').onclick = () => { if (user) fb.Au.signOut(fb.auth); else { $('lerr').textContent = ''; $('dlg').showModal(); } };
 $('lx').onclick = () => $('dlg').close();
 $('lf').onsubmit = async e => { e.preventDefault();
@@ -232,7 +233,7 @@ async function initFirebase() {
     F.onSnapshot(F.collection(db, 'bidang_edits'), snap => {
       const touched = new Set();
       snap.docChanges().forEach(ch => { const id = ch.doc.id; if (ch.type === 'removed') EDITS.delete(id); else EDITS.set(id, ch.doc.data()); const f = BYUID.get(id); if (f) { f._p = eff(f); touched.add(f); } });
-      if (!DATA) return;
+      if (!DATA.features.length) return;
       banner('');
       let refilter = false;
       touched.forEach(f => { const l = layers.get(f); if (l) { l.setStyle(style(f, f === sel)); setLabel(f, l); } if (visible(f) !== !!l) refilter = true; });
@@ -243,16 +244,91 @@ async function initFirebase() {
   } catch (err) { banner('Firebase tidak dapat dimuat (' + err.message + '). Peta tetap bisa dilihat dalam mode baca.'); authUI(); }
 }
 
-/* ---------- mulai ---------- */
-(async () => {
-  initFirebase();
-  try { const res = await fetch('data/bidang.geojson'); if (!res.ok) throw new Error(res.status); DATA = await res.json(); }
-  catch (err) { banner('Gagal memuat data/bidang.geojson. Jalankan lewat server (bukan file://), mis. "python -m http.server".'); return; }
-  INIT = DATA.init; DATA.features.forEach((f, i) => { f._i = i; f._p = eff(f); BYUID.set(String(f.properties.uid), f); });
+/* ---------- impor / simpan data bidang ---------- */
+const rnd = v => Math.round(v * 1e7) / 1e7;
+const cleanC = c => typeof c[0] === 'number' ? [rnd(c[0]), rnd(c[1])] : c.map(cleanC);
+function ringArea(r) { const k = 111320 * Math.cos(r[0][1] * Math.PI / 180), ky = 110574, o = r[0]; let a = 0;
+  for (let i = 0; i < r.length; i++) { const q = r[i], w = r[(i + 1) % r.length];
+    a += (q[0] - o[0]) * k * (w[1] - o[1]) * ky - (w[0] - o[0]) * k * (q[1] - o[1]) * ky; } return Math.abs(a / 2); }
+function geomArea(g) { const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates; let t = 0;
+  polys.forEach(pl => pl.forEach((r, i) => { if (r.length > 2) t += (i ? -1 : 1) * ringArea(r); })); return Math.abs(t); }
+const ALIAS = {pemilik: ['pemilik','nama_pemilik','nama','owner'], nib: ['nib'], hak: ['no_hak','nomor_hak','hak'], dusun: ['dusun'],
+  penggunaan: ['penggunaan','guna_tanah'], luas_data: ['luas_data','luas'], label: ['label','text']};
+function normalize(g) {
+  const feats = g && g.type === 'FeatureCollection' ? g.features : g && g.type === 'Feature' ? [g] : Array.isArray(g) ? g : null;
+  if (!feats) throw new Error('File bukan GeoJSON (FeatureCollection).');
+  const out = [], used = new Set(); let skipped = 0;
+  feats.forEach((f, i) => {
+    const t = f && f.geometry && f.geometry.type;
+    if ((t !== 'Polygon' && t !== 'MultiPolygon') || !Array.isArray(f.geometry.coordinates)) { skipped++; return; }
+    const coords = cleanC(f.geometry.coordinates);
+    let c0 = coords; while (Array.isArray(c0[0])) c0 = c0[0];
+    if (!(Math.abs(c0[0]) <= 180 && Math.abs(c0[1]) <= 90)) throw new Error('Koordinat bukan lon/lat (WGS84). Ubah dulu ke EPSG:4326 (mis. di QGIS: Export → CRS EPSG:4326).');
+    const p = {...(f.properties || {})}, lk = {}; Object.keys(p).forEach(k => lk[k.toLowerCase()] = p[k]);
+    for (const [k, al] of Object.entries(ALIAS)) if (p[k] == null || p[k] === '') { for (const a of al) { const v = lk[a]; if (v != null && String(v).trim() !== '') { p[k] = typeof v === 'string' ? v.trim() : v; break; } } }
+    ['dusun','luas_data'].forEach(k => { if (p[k] != null) { const n = Number(p[k]); if (Number.isFinite(n)) p[k] = n; else delete p[k]; } });
+    if (p.penggunaan != null) p.penggunaan = String(p.penggunaan).trim().toUpperCase();
+    if (!CL[p.c]) p.c = p.pemilik ? 'excel' : p.nib ? 'nib' : p.hak ? 'hak' : p.label ? 'nama' : 'lain';
+    let uid = p.uid ?? lk.uid ?? lk.id ?? f.id; if (uid == null || uid === '' || used.has(String(uid))) uid = 'g' + (i + 1);
+    while (used.has(String(uid))) uid = uid + '_'; used.add(String(uid)); p.uid = uid;
+    if (!Number.isFinite(Number(p.luas_poligon))) p.luas_poligon = Math.round(geomArea({type: t, coordinates: coords}) * 10) / 10;
+    out.push({type: 'Feature', properties: p, geometry: {type: t, coordinates: coords}});
+  });
+  return {gj: {type: 'FeatureCollection', features: out}, skipped};
+}
+const CHUNK = 300000;
+async function saveData(gj) {
+  const {F, db} = fb, str = JSON.stringify(gj.features), n = Math.ceil(str.length / CHUNK);
+  const bb = L.geoJSON(gj).getBounds(), metaRef = F.doc(db, 'bidang_data', 'meta');
+  const old = await F.getDoc(metaRef), oldN = old.exists() ? old.data().chunks : 0;
+  for (let i = 0; i < n; i++) { banner(`Menyimpan data ke Firestore… ${i + 1}/${n}`); await F.setDoc(F.doc(db, 'bidang_data', 'c' + i), {i, t: str.slice(i * CHUNK, (i + 1) * CHUNK)}); }
+  await F.setDoc(metaRef, {chunks: n, count: gj.features.length, bounds: {s: bb.getSouth(), w: bb.getWest(), n: bb.getNorth(), e: bb.getEast()}, updatedAt: F.serverTimestamp(), updatedBy: user.email});
+  for (let i = n; i < oldN; i++) await F.deleteDoc(F.doc(db, 'bidang_data', 'c' + i));
+}
+async function loadFromFirestore() {
+  const {F, db} = fb, m = await F.getDoc(F.doc(db, 'bidang_data', 'meta')); if (!m.exists()) return null;
+  const md = m.data(), docs = await Promise.all(Array.from({length: md.chunks}, (_, i) => F.getDoc(F.doc(db, 'bidang_data', 'c' + i))));
+  if (docs.some(d => !d.exists())) throw new Error('data di Firestore tidak lengkap, impor ulang.');
+  const gj = {type: 'FeatureCollection', features: JSON.parse(docs.map(d => d.data().t).join(''))};
+  if (md.bounds) gj.init = [[md.bounds.s, md.bounds.w], [md.bounds.n, md.bounds.e]];
+  return gj;
+}
+function fillFilters() {
+  $('fc').innerHTML = ''; $('fd').innerHTML = '<option value="">Semua dusun</option>'; $('fp').innerHTML = '<option value="">Semua penggunaan</option>';
   $('fc').add(new Option('Semua kelas bidang', '')); $('fc').add(new Option('⚑ Perlu diisi (belum ada pemilik)', 'todo'));
-  const cnt = {}; DATA.features.forEach(f => cnt[f.properties.c] = (cnt[f.properties.c] || 0) + 1);
+  const cnt = {}; DATA.features.forEach(f => cnt[f._p.c] = (cnt[f._p.c] || 0) + 1);
   Object.keys(CL).filter(k => k !== 'tanpa').forEach(k => $('fc').add(new Option(`${CL[k].n}${cnt[k] ? ' (' + cnt[k] + ')' : ''}`, k)));
   uniq('dusun').forEach(x => $('fd').add(new Option('Dusun ' + x, x))); Object.keys(PAL).forEach(x => $('fp').add(new Option(x, x)));
-  map.fitBounds(INIT); render(false); lblToggle();
+}
+function setData(gj, fit) {
+  DATA = gj; sel = null; editing = false; BYUID = new Map(); $('detail').style.display = 'none';
+  DATA.features.forEach((f, i) => { f._i = i; BYUID.set(String(f.properties.uid), f); f._p = eff(f); });
+  fillFilters(); render(false); lblToggle();
+  if (fit && DATA.features.length) { INIT = DATA.init || L.geoJSON({type: 'FeatureCollection', features: DATA.features}).getBounds(); map.fitBounds(INIT); }
+}
+$('btnImport').onclick = () => { if (canEdit()) $('fileImp').click(); };
+$('fileImp').onchange = async e => {
+  const file = e.target.files[0]; e.target.value = ''; if (!file || !canEdit()) return;
+  try {
+    banner('Membaca ' + file.name + '…');
+    const {gj, skipped} = normalize(JSON.parse(await file.text()));
+    if (!gj.features.length) throw new Error('Tidak ada poligon (Polygon/MultiPolygon) di file ini.');
+    const todo = gj.features.filter(f => TODO.has(f.properties.c)).length;
+    const msg = `Impor ${fmt(gj.features.length)} bidang dari "${file.name}"?` + (skipped ? `\n${fmt(skipped)} objek non-poligon dilewati.` : '')
+      + (todo ? `\n${fmt(todo)} bidang belum punya data pemilik (bisa diisi setelahnya).` : '')
+      + (DATA.features.length ? '\n\nPeringatan: data peta yang ada akan DIGANTI untuk semua pengguna. Isian manual lama dikaitkan lewat UID, jadi pastikan UID bidang konsisten.' : '');
+    if (!confirm(msg)) { banner(''); return; }
+    await saveData(gj); setData(gj, true); banner(''); alert('Impor selesai: ' + fmt(gj.features.length) + ' bidang.');
+  } catch (err) { banner('Gagal impor: ' + (err.code === 'permission-denied' ? 'aturan Firestore menolak penulisan (pasang firestore.rules terbaru).' : err.message)); }
+};
+
+/* ---------- mulai ---------- */
+(async () => {
+  setData(DATA, false);
+  await initFirebase();
+  let gj = null;
+  if (fb) { try { gj = await loadFromFirestore(); } catch (err) { banner('Gagal membaca data dari Firestore: ' + (err.code === 'permission-denied' ? 'periksa firestore.rules.' : err.message)); } }
+  if (!gj) { try { const res = await fetch('data/bidang.geojson'); if (res.ok) gj = await res.json(); } catch (e) {} }
+  if (gj) setData(gj, true);
 })();
 </script></body></html>
