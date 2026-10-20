@@ -207,7 +207,9 @@ $('btnExport').onclick = () => {
 function authUI() { $('btnAuth').textContent = user ? `Keluar (${user.email})` : 'Masuk admin'; $('btnAuth').style.display = fb ? '' : 'none'; if (sel && !editing) pick(sel, false); }
 $('btnAuth').onclick = () => { if (user) fb.Au.signOut(fb.auth); else { $('lerr').textContent = ''; $('dlg').showModal(); } };
 $('lx').onclick = () => $('dlg').close();
-$('lf').onsubmit = async e => { e.preventDefault(); $('lerr').textContent = 'Memproses…';
+$('lf').onsubmit = async e => { e.preventDefault();
+  if (!fb) { $('lerr').textContent = 'Firebase belum termuat. Muat ulang halaman (Ctrl+F5) lalu coba lagi.'; return; }
+  $('lerr').textContent = 'Memproses…';
   try { await fb.Au.signInWithEmailAndPassword(fb.auth, $('le').value.trim(), $('lp').value); $('lp').value = ''; $('dlg').close(); }
   catch (err) { $('lerr').textContent = 'Gagal masuk: ' + (err.code || err.message); } };
 async function initFirebase() {
@@ -230,6 +232,7 @@ async function initFirebase() {
     F.onSnapshot(F.collection(db, 'bidang_edits'), snap => {
       const touched = new Set();
       snap.docChanges().forEach(ch => { const id = ch.doc.id; if (ch.type === 'removed') EDITS.delete(id); else EDITS.set(id, ch.doc.data()); const f = BYUID.get(id); if (f) { f._p = eff(f); touched.add(f); } });
+      if (!DATA) return;
       banner('');
       let refilter = false;
       touched.forEach(f => { const l = layers.get(f); if (l) { l.setStyle(style(f, f === sel)); setLabel(f, l); } if (visible(f) !== !!l) refilter = true; });
@@ -242,13 +245,14 @@ async function initFirebase() {
 
 /* ---------- mulai ---------- */
 (async () => {
+  initFirebase();
   try { const res = await fetch('data/bidang.geojson'); if (!res.ok) throw new Error(res.status); DATA = await res.json(); }
   catch (err) { banner('Gagal memuat data/bidang.geojson. Jalankan lewat server (bukan file://), mis. "python -m http.server".'); return; }
-  INIT = DATA.init; DATA.features.forEach((f, i) => { f._i = i; f._p = f.properties; BYUID.set(String(f.properties.uid), f); });
+  INIT = DATA.init; DATA.features.forEach((f, i) => { f._i = i; f._p = eff(f); BYUID.set(String(f.properties.uid), f); });
   $('fc').add(new Option('Semua kelas bidang', '')); $('fc').add(new Option('⚑ Perlu diisi (belum ada pemilik)', 'todo'));
   const cnt = {}; DATA.features.forEach(f => cnt[f.properties.c] = (cnt[f.properties.c] || 0) + 1);
   Object.keys(CL).filter(k => k !== 'tanpa').forEach(k => $('fc').add(new Option(`${CL[k].n}${cnt[k] ? ' (' + cnt[k] + ')' : ''}`, k)));
   uniq('dusun').forEach(x => $('fd').add(new Option('Dusun ' + x, x))); Object.keys(PAL).forEach(x => $('fp').add(new Option(x, x)));
-  map.fitBounds(INIT); render(false); lblToggle(); initFirebase();
+  map.fitBounds(INIT); render(false); lblToggle();
 })();
 </script></body></html>
