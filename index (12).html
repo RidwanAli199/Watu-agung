@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGIS 2D Bidang Tanah – Desa Watu Agung</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#fff;--panel:#f8fafc;--txt:#0f172a;--mut:#64748b;--line:#e2e8f0;--acc:#0f766e}
+@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--panel:#111c33;--txt:#e2e8f0;--mut:#94a3b8;--line:#243049;--acc:#2dd4bf}}
+*{box-sizing:border-box}html,body{height:100%;margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+#app{display:grid;grid-template-columns:370px 1fr;height:100%}
+#side{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line);min-height:0}
+#head{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+#head h1{font-size:16px;margin:0 0 2px}#head p{margin:0;color:var(--mut);font-size:12px}
+button{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--txt);cursor:pointer}
+button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}button.dng{color:#dc2626}button:disabled{opacity:.5}
+#filters{padding:10px 14px;display:grid;gap:8px;border-bottom:1px solid var(--line)}
+input,select,textarea{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt);font:inherit}
+input[type=checkbox]{width:auto}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}label.chk{font-size:12px;color:var(--mut);display:flex;gap:6px;align-items:center}
+#banner{display:none;padding:6px 14px;font-size:12px;background:rgba(245,158,11,.18);border-bottom:1px solid #f59e0b}
+#stats{padding:6px 14px;font-size:12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;color:var(--mut)}
+#list{overflow:auto;flex:1;min-height:80px}
+.item{padding:7px 14px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;gap:8px;align-items:center}
+.item:hover,.item.on{background:rgba(15,118,110,.12)}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}.item small{color:var(--mut);display:block}
+#detail{border-top:2px solid var(--acc);max-height:55%;overflow:auto;padding:12px 14px;display:none;background:var(--bg)}
+#detail h2{font-size:15px;margin:0 0 2px}#detail .sub{color:var(--mut);font-size:12px;margin-bottom:8px}
+#detail h3{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);margin:12px 0 4px}
+table{width:100%;border-collapse:collapse}td{padding:3px 0;vertical-align:top;border-bottom:1px dashed var(--line)}td:first-child{color:var(--mut);width:42%;padding-right:8px}
+.warn{background:rgba(245,158,11,.15);border:1px solid #f59e0b;border-radius:8px;padding:6px 8px;font-size:12px;margin:8px 0}
+.info{background:rgba(59,130,246,.12);border:1px solid #3b82f6;border-radius:8px;padding:6px 8px;font-size:12px;margin:8px 0}
+.meta{font-size:11px;color:var(--mut);margin-top:8px}.acts{display:flex;gap:8px;margin:10px 0 4px;flex-wrap:wrap}
+.fld{margin-bottom:8px}.fld label{display:block;font-size:12px;color:var(--mut);margin-bottom:2px}
+#foot{padding:8px 14px;font-size:11px;color:var(--mut);border-top:1px solid var(--line)}
+#map{height:100%}.legend{background:var(--bg);color:var(--txt);padding:8px 10px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,.3);font-size:12px;line-height:1.7}
+.legend i{display:inline-block;width:12px;height:12px;margin-right:6px;border-radius:2px;vertical-align:-1px;border:1px solid #475569}
+.lbl{background:rgba(255,255,255,.85);border:0;box-shadow:none;color:#111;font-size:10px;padding:1px 4px}.nolbl .lbl{display:none}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);width:min(340px,92vw);padding:18px}
+dialog::backdrop{background:rgba(0,0,0,.45)}#lerr{color:#dc2626;font-size:12px;min-height:16px}
+@media(max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:50% 50%}#side{order:2;border-right:0;border-top:1px solid var(--line)}#detail{max-height:65%}}
+</style></head><body>
+<div id="app">
+ <aside id="side">
+  <div id="head"><div><h1>Peta Bidang Tanah 2D</h1><p>Desa Watu Agung · atribut dapat diisi langsung</p></div>
+   <div><button id="btnAuth">Masuk admin</button></div></div>
+  <div id="banner"></div>
+  <div id="filters">
+   <input id="q" type="search" placeholder="Cari nama, nomor, NIB, atau nomor hak…">
+   <div class="row"><select id="fc"></select><select id="fd"><option value="">Semua dusun</option></select></div>
+   <select id="fp"><option value="">Semua penggunaan</option></select>
+   <label class="chk"><input id="ft" type="checkbox"> Tampilkan juga objek tanpa atribut (garis/bangunan dari CAD)</label>
+  </div>
+  <div id="stats"><span id="count"></span><span id="prog"></span></div>
+  <div id="list"></div><div id="detail"></div>
+  <div id="foot"><button id="btnExport">Unduh GeoJSON</button> · Data pribadi (NIK, TTL, agama, pekerjaan, alamat, saksi) tidak ditampilkan dan tidak boleh diinput.</div>
+ </aside>
+ <div id="map"></div>
+</div>
+<dialog id="dlg"><form id="lf"><h3 style="margin:0 0 10px">Masuk admin</h3>
+ <div class="fld"><label>Email</label><input id="le" type="email" required autocomplete="username"></div>
+ <div class="fld"><label>Kata sandi</label><input id="lp" type="password" required autocomplete="current-password"></div>
+ <div id="lerr"></div><div class="acts"><button class="pri" type="submit">Masuk</button><button type="button" id="lx">Batal</button></div></form></dialog>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module">
+const FB_VER = '10.12.2';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = n => n == null ? null : Number(n).toLocaleString('id-ID');
+const PAL = {LADANG:'#d97706',PERUMAHAN:'#2563eb',PEKARANGAN:'#16a34a',SAWAH:'#84cc16',LAINNYA:'#9333ea'}, NA = '#94a3b8';
+const CL = {excel:{n:'Terhubung data nominatif'}, manual:{n:'Diisi manual',c:'#5eead4'}, nib:{n:'Bidang ber-NIB',c:'#bfdbfe'}, hak:{n:'Bidang ber-nomor hak',c:'#fed7aa'},
+  nama:{n:'Bidang bernama',c:'#bbf7d0'}, lain:{n:'Label lain',c:'#e2e8f0'}, jalan:{n:'Jalan',c:'#d1d5db'}, tanpa:{n:'Objek tanpa atribut',c:'#9ca3af'}};
+const FILLED = new Set(['excel','manual']), TODO = new Set(['nib','hak','nama','lain']);
+const FIELDS = [['pemilik','Nama pemilik','text'],['dusun','Dusun (angka)','number'],['penggunaan','Penggunaan','select',['LADANG','PERUMAHAN','PEKARANGAN','SAWAH','LAINNYA']],
+  ['luas_data','Luas menurut data (m²)','number'],['perolehan','Perolehan','select',['HIBAH','JUAL BELI','LAINNYA']],['sejak','Dimiliki sejak (tahun)','number'],
+  ['pemilik_lama','Pemilik sebelumnya','text'],['tahun_pbb','Tahun PBB','number'],['utara','Batas utara','text'],['timur','Batas timur','text'],
+  ['selatan','Batas selatan','text'],['barat','Batas barat','text'],['no_surat','Nomor surat alas hak','text'],['tgl_surat','Tanggal surat alas hak','date'],['catatan_manual','Catatan','textarea']];
+const META = ['updatedAt','updatedBy'];
+let DATA, INIT, BYUID = new Map(), EDITS = new Map(), fb = null, user = null, sel = null, editing = false, lastOk = [];
+const layers = new Map();
+
+const banner = t => { const b = $('banner'); b.textContent = t; b.style.display = t ? 'block' : 'none'; };
+const col = p => FILLED.has(p.c) ? (PAL[p.penggunaan] || (p.c === 'manual' ? CL.manual.c : NA)) : CL[p.c].c;
+const style = (f, on) => { const p = f._p, fl = FILLED.has(p.c);
+  return {color: on ? '#0f172a' : (p.catatan ? '#dc2626' : (p.c === 'manual' ? '#0d9488' : '#475569')), weight: on ? 3 : (p.c === 'manual' ? 1.8 : fl ? 1 : .6),
+    dashArray: p.catatan && !on ? '4 3' : null, fillColor: col(p), fillOpacity: on ? .85 : (fl ? .65 : .45)}; };
+function eff(f) {
+  const s = f.properties, e = EDITS.get(String(s.uid)); if (!e) return s;
+  const p = {...s};
+  for (const [k, v] of Object.entries(e)) { if (META.includes(k)) continue; if (v === null || v === '') delete p[k]; else p[k] = v; }
+  if (!FILLED.has(p.c) && e.pemilik) p.c = 'manual';
+  return p;
+}
+const title = p => FILLED.has(p.c) ? (p.pemilik || 'Tanpa nama') : p.nib ? 'NIB ' + p.nib : p.hak ? 'Hak ' + p.hak : p.pemilik || p.label || CL[p.c].n;
+
+/* ---------- peta ---------- */
+const map = L.map('map', {preferCanvas: true}).setView([-5.19, 105.02], 14);
+const base = {'Peta (OpenStreetMap)': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap'}),
+  'Citra Satelit (Esri)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom: 19, attribution: 'Esri'})};
+base['Peta (OpenStreetMap)'].addTo(map); L.control.layers(base, null, {position: 'topright'}).addTo(map);
+function setLabel(f, l) { l.unbindTooltip(); if (FILLED.has(f._p.c) && f._p.pemilik) l.bindTooltip(esc(f._p.pemilik), {permanent: true, direction: 'center', className: 'lbl'}); }
+const layer = L.geoJSON(null, {style: f => style(f, false), onEachFeature: (f, l) => { layers.set(f, l); setLabel(f, l); l.on('click', () => pick(f, false)); }}).addTo(map);
+(() => { const c = L.control({position: 'bottomright'}); c.onAdd = () => { const d = L.DomUtil.create('div', 'legend');
+  d.innerHTML = '<b>Sudah terisi</b><br>' + Object.entries(PAL).map(([k, v]) => `<i style="background:${v}"></i>${k}`).join('<br>')
+   + `<br><i style="background:${CL.manual.c};border-color:#0d9488"></i>Diisi manual (tanpa penggunaan)<br><b>Perlu diisi</b><br>`
+   + ['nib','hak','nama','lain','jalan'].map(k => `<i style="background:${CL[k].c}"></i>${CL[k].n}`).join('<br>') + '<br><i style="border:1px dashed #dc2626;background:none"></i>Perlu verifikasi'; return d; }; c.addTo(map); })();
+const lblToggle = () => $('map').classList.toggle('nolbl', map.getZoom() < 18);
+map.on('zoomend', lblToggle);
+
+/* ---------- panel detail & form ---------- */
+const row = (k, v) => v == null || v === '' ? '' : `<tr><td>${k}</td><td>${esc(v)}</td></tr>`;
+const sec = (t, rows) => rows.join('') ? `<h3>${t}</h3><table>${rows.join('')}</table>` : '';
+const canEdit = () => !!(fb && user);
+function detailHtml(f) {
+  const p = f._p, e = EDITS.get(String(f.properties.uid)), luasPeta = fmt(Math.round(p.luas_poligon));
+  let h = `<h2>${esc(title(p))}</h2><div class="sub">${esc(CL[p.c].n)}${p.no != null ? ' · No. ' + esc(p.no) : ''}${p.dusun != null ? ' · Dusun ' + esc(p.dusun) : ''}</div>`;
+  if (p.catatan) h += `<div class="warn">⚠ ${esc(p.catatan)}</div>`;
+  if (TODO.has(p.c)) h += '<div class="info">Belum ada data pemilik/nominatif untuk bidang ini.' + (canEdit() ? '' : ' Admin dapat mengisinya setelah masuk.') + '</div>';
+  h += sec('Bidang', [row('Luas (data)', p.luas_data != null && fmt(p.luas_data) + ' m²'), row('Luas (hasil peta)', luasPeta + ' m²'), row('Penggunaan', p.penggunaan), row('Tahun PBB', p.tahun_pbb),
+      row('NIB (peta CAD)', p.nib), row('Nomor hak (peta CAD)', p.hak), row('Nama pada label peta', !FILLED.has(p.c) ? p.pemilik : null), row('Layer CAD', p.layer)])
+    + sec('Batas bidang', [row('Utara', p.utara), row('Timur', p.timur), row('Selatan', p.selatan), row('Barat', p.barat)])
+    + sec('Riwayat kepemilikan', [row('Perolehan', p.perolehan), row('Dimiliki sejak', p.sejak), row('Pemilik sebelumnya', p.pemilik_lama), row('Tanggal surat alas hak', p.tgl_surat),
+      row('Nomor surat alas hak', p.no_surat), row('Pemilik lain di bidang ini', p.pemilik_lain)])
+    + sec('Catatan', [row('Catatan', p.catatan_manual)]);
+  if (e) { const t = e.updatedAt && e.updatedAt.toDate ? e.updatedAt.toDate().toLocaleString('id-ID') : 'menyimpan…'; h += `<div class="meta">Diubah manual oleh ${esc(e.updatedBy || '-')} · ${esc(t)}</div>`; }
+  if (canEdit()) h += `<div class="acts"><button class="pri" id="bEdit">✏ ${FILLED.has(p.c) ? 'Ubah' : 'Isi'} atribut</button>${e ? '<button class="dng" id="bReset">Kembalikan ke data awal</button>' : ''}</div>`;
+  return h;
+}
+function pick(f, zoom) {
+  if (sel && layers.get(sel)) layers.get(sel).setStyle(style(sel, false));
+  sel = f; editing = false; const l = layers.get(f);
+  if (l) { l.setStyle(style(f, true)); l.bringToFront(); if (zoom) map.fitBounds(l.getBounds(), {maxZoom: 19, padding: [40, 40]}); }
+  const d = $('detail'); d.innerHTML = detailHtml(f); d.style.display = 'block'; d.scrollTop = 0;
+  if ($('bEdit')) $('bEdit').onclick = () => showForm(f);
+  if ($('bReset')) $('bReset').onclick = () => resetEdit(f);
+  document.querySelectorAll('.item').forEach(x => x.classList.toggle('on', x.dataset.i == f._i));
+}
+function showForm(f) {
+  editing = true; const p = f._p;
+  const inp = ([k, lbl, type, opts]) => {
+    const v = p[k] == null ? '' : p[k];
+    if (type === 'select') { const o = opts.slice(); if (v !== '' && !o.includes(v)) o.push(v); return `<div class="fld"><label>${lbl}</label><select data-k="${k}"><option value="">—</option>${o.map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>`; }
+    if (type === 'textarea') return `<div class="fld"><label>${lbl}</label><textarea data-k="${k}" rows="3">${esc(v)}</textarea></div>`;
+    return `<div class="fld"><label>${lbl}</label><input data-k="${k}" data-t="${type}" type="${type}" ${type === 'number' ? 'step="any"' : ''} value="${esc(v)}"></div>`; };
+  $('detail').innerHTML = `<h2>${FILLED.has(p.c) ? 'Ubah' : 'Isi'} atribut</h2><div class="sub">${esc(title(p))} · UID ${f.properties.uid}</div>
+   <div class="warn">Jangan mengisi data pribadi (NIK, tempat/tanggal lahir, agama, pekerjaan, alamat, data saksi).</div>${FIELDS.map(inp).join('')}
+   <div class="acts"><button class="pri" id="bSave">Simpan</button><button id="bCancel">Batal</button></div><div id="ferr" class="meta"></div>`;
+  $('bCancel').onclick = () => pick(f, false);
+  $('bSave').onclick = () => saveEdit(f);
+}
+async function saveEdit(f) {
+  const s = f.properties, data = {}; $('ferr').textContent = '';
+  for (const el of $('detail').querySelectorAll('[data-k]')) {
+    const k = el.dataset.k, raw = el.value.trim(); let val = raw === '' ? null : (el.dataset.t === 'number' ? Number(raw) : raw);
+    if (typeof val === 'number' && !Number.isFinite(val)) { $('ferr').textContent = 'Nilai angka tidak valid pada ' + k; return; }
+    if (val === null && s[k] == null) continue;
+    if (val !== null && s[k] === val) continue;
+    data[k] = val;
+  }
+  if (!Object.keys(data).length) { $('ferr').textContent = 'Tidak ada perubahan.'; return; }
+  data.updatedAt = fb.F.serverTimestamp(); data.updatedBy = user.email;
+  $('bSave').disabled = true;
+  try { await fb.F.setDoc(fb.F.doc(fb.db, 'bidang_edits', String(s.uid)), data); pick(f, false); }
+  catch (err) { $('bSave').disabled = false; $('ferr').textContent = 'Gagal menyimpan: ' + (err.code === 'permission-denied' ? 'akun ini tidak diizinkan (periksa firestore.rules)' : err.message); }
+}
+async function resetEdit(f) {
+  if (!confirm('Hapus semua isian manual pada bidang ini dan kembali ke data awal?')) return;
+  try { await fb.F.deleteDoc(fb.F.doc(fb.db, 'bidang_edits', String(f.properties.uid))); } catch (err) { alert('Gagal: ' + err.message); }
+}
+
+/* ---------- filter, daftar, statistik ---------- */
+const uniq = k => [...new Set(DATA_F().map(f => f._p[k]).filter(x => x != null))].sort((a, b) => String(a).localeCompare(String(b), 'id', {numeric: true}));
+const DATA_F = () => DATA.features;
+function visible(f) {
+  const p = f._p, q = $('q').value.trim().toLowerCase(), fc = $('fc').value, fd = $('fd').value, fp = $('fp').value;
+  if (p.c === 'tanpa' && !$('ft').checked && fc !== 'tanpa') return false;
+  if (fc === 'todo' ? !TODO.has(p.c) : (fc && p.c !== fc)) return false;
+  if (fd && String(p.dusun) !== fd) return false; if (fp && p.penggunaan !== fp) return false;
+  if (!q) return true;
+  return [p.pemilik, p.nib, p.hak, p.label, p.pemilik_lain].some(x => x && String(x).toLowerCase().includes(q)) || String(p.no ?? '') === q;
+}
+function renderList() {
+  const rank = {excel:0, manual:0, nama:1, nib:2, hak:3, lain:4, jalan:5, tanpa:6};
+  const shown = lastOk.slice().sort((a, b) => rank[a._p.c] - rank[b._p.c]).slice(0, 300);
+  $('list').innerHTML = shown.map(f => `<div class="item ${f === sel ? 'on' : ''}" data-i="${f._i}"><span class="dot" style="background:${col(f._p)}"></span><div>${esc(title(f._p))}<small>${esc(CL[f._p.c].n)}${f._p.no != null ? ' · No. ' + esc(f._p.no) : ''}</small></div></div>`).join('')
+    + (lastOk.length > 300 ? `<div class="item"><small>…dan ${fmt(lastOk.length - 300)} lainnya (persempit pencarian)</small></div>` : '');
+  $('count').textContent = `${fmt(lastOk.length)} ditampilkan dari ${fmt(DATA.features.length)} objek`;
+}
+function stats() { let a = 0, b = 0, m = 0; DATA.features.forEach(f => { if (FILLED.has(f._p.c)) { a++; if (f._p.c === 'manual') m++; } else if (TODO.has(f._p.c)) b++; });
+  $('prog').textContent = `Terisi ${fmt(a)} (${fmt(m)} manual) · Perlu diisi ${fmt(b)}`; }
+function render(fit) {
+  lastOk = DATA.features.filter(visible);
+  layer.clearLayers(); layers.clear(); layer.addData({type: 'FeatureCollection', features: lastOk});
+  renderList(); stats();
+  if (sel && layers.get(sel)) layers.get(sel).setStyle(style(sel, true));
+  if (fit && lastOk.length) map.fitBounds(layer.getBounds(), {padding: [30, 30], maxZoom: 18});
+}
+['q','fc','fd','fp','ft'].forEach(id => $(id).addEventListener('input', () => render(id !== 'ft')));
+$('list').onclick = e => { const it = e.target.closest('.item[data-i]'); if (it) pick(DATA.features[+it.dataset.i], true); };
+
+/* ---------- ekspor ---------- */
+$('btnExport').onclick = () => {
+  const fc = {type: 'FeatureCollection', features: DATA.features.map(f => { const p = {...f._p}; return {type: 'Feature', properties: p, geometry: f.geometry}; })};
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(fc)], {type: 'application/geo+json'}));
+  a.download = 'bidang_watu_agung_terbaru.geojson'; a.click(); URL.revokeObjectURL(a.href);
+};
+
+/* ---------- Firebase: realtime + login ---------- */
+function authUI() { $('btnAuth').textContent = user ? `Keluar (${user.email})` : 'Masuk admin'; $('btnAuth').style.display = fb ? '' : 'none'; if (sel && !editing) pick(sel, false); }
+$('btnAuth').onclick = () => { if (user) fb.Au.signOut(fb.auth); else { $('lerr').textContent = ''; $('dlg').showModal(); } };
+$('lx').onclick = () => $('dlg').close();
+$('lf').onsubmit = async e => { e.preventDefault(); $('lerr').textContent = 'Memproses…';
+  try { await fb.Au.signInWithEmailAndPassword(fb.auth, $('le').value.trim(), $('lp').value); $('lp').value = ''; $('dlg').close(); }
+  catch (err) { $('lerr').textContent = 'Gagal masuk: ' + (err.code || err.message); } };
+async function initFirebase() {
+  try {
+    const firebaseConfig = {
+      apiKey: "AIzaSyB8k-9IaSEOAPPSaOU-d7nXOM6TLIwq5IY",
+      authDomain: "watuagung.firebaseapp.com",
+      projectId: "watuagung",
+      storageBucket: "watuagung.firebasestorage.app",
+      messagingSenderId: "20151757074",
+      appId: "1:20151757074:web:4e655c9943b233fb622bcb",
+      measurementId: "G-NHWHRFNSEW"
+    };
+    if (!firebaseConfig || String(firebaseConfig.apiKey).startsWith('ISI')) { banner('Mode baca saja: konfigurasi Firebase belum diisi, sehingga pengisian atribut belum aktif.'); authUI(); return; }
+    const u = n => `https://www.gstatic.com/firebasejs/${FB_VER}/firebase-${n}.js`;
+    const [A, F, Au] = await Promise.all([import(u('app')), import(u('firestore')), import(u('auth'))]);
+    const app = A.initializeApp(firebaseConfig), db = F.getFirestore(app), auth = Au.getAuth(app);
+    fb = {A, F, Au, db, auth};
+    Au.onAuthStateChanged(auth, x => { user = x; authUI(); });
+    F.onSnapshot(F.collection(db, 'bidang_edits'), snap => {
+      const touched = new Set();
+      snap.docChanges().forEach(ch => { const id = ch.doc.id; if (ch.type === 'removed') EDITS.delete(id); else EDITS.set(id, ch.doc.data()); const f = BYUID.get(id); if (f) { f._p = eff(f); touched.add(f); } });
+      banner('');
+      let refilter = false;
+      touched.forEach(f => { const l = layers.get(f); if (l) { l.setStyle(style(f, f === sel)); setLabel(f, l); } if (visible(f) !== !!l) refilter = true; });
+      if (refilter) render(false); else { renderList(); stats(); }
+      if (sel && touched.has(sel) && !editing) pick(sel, false);
+    }, err => banner('Sinkronisasi gagal: ' + (err.code === 'permission-denied' ? 'aturan Firestore menolak pembacaan (periksa firestore.rules).' : err.message)));
+    authUI();
+  } catch (err) { banner('Firebase tidak dapat dimuat (' + err.message + '). Peta tetap bisa dilihat dalam mode baca.'); authUI(); }
+}
+
+/* ---------- mulai ---------- */
+(async () => {
+  try { const res = await fetch('data/bidang.geojson'); if (!res.ok) throw new Error(res.status); DATA = await res.json(); }
+  catch (err) { banner('Gagal memuat data/bidang.geojson. Jalankan lewat server (bukan file://), mis. "python -m http.server".'); return; }
+  INIT = DATA.init; DATA.features.forEach((f, i) => { f._i = i; f._p = f.properties; BYUID.set(String(f.properties.uid), f); });
+  $('fc').add(new Option('Semua kelas bidang', '')); $('fc').add(new Option('⚑ Perlu diisi (belum ada pemilik)', 'todo'));
+  const cnt = {}; DATA.features.forEach(f => cnt[f.properties.c] = (cnt[f.properties.c] || 0) + 1);
+  Object.keys(CL).filter(k => k !== 'tanpa').forEach(k => $('fc').add(new Option(`${CL[k].n}${cnt[k] ? ' (' + cnt[k] + ')' : ''}`, k)));
+  uniq('dusun').forEach(x => $('fd').add(new Option('Dusun ' + x, x))); Object.keys(PAL).forEach(x => $('fp').add(new Option(x, x)));
+  map.fitBounds(INIT); render(false); lblToggle(); initFirebase();
+})();
+</script></body></html>
